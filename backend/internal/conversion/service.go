@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/jpeg"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,28 +95,19 @@ func (s *Service) InspectJPEG(inputPath string) (ImageInfo, error) {
 		return ImageInfo{}, err
 	}
 
-	file, err := os.Open(normalizedInputPath)
+	metadata, err := readJPEGMetadata(normalizedInputPath)
 	if err != nil {
-		return ImageInfo{}, fmt.Errorf("%w: %v", ErrReadFailed, err)
-	}
-	defer file.Close()
-
-	metadata, err := file.Stat()
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("%w: %v", ErrReadFailed, err)
+		return ImageInfo{}, err
 	}
 
-	config, err := jpeg.DecodeConfig(file)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
-	}
+	normalizedWidth, normalizedHeight := metadata.normalizedDimensions()
 
 	return ImageInfo{
 		InputPath:  normalizedInputPath,
 		FileName:   filepath.Base(normalizedInputPath),
-		Width:      config.Width,
-		Height:     config.Height,
-		InputBytes: metadata.Size(),
+		Width:      normalizedWidth,
+		Height:     normalizedHeight,
+		InputBytes: metadata.InputBytes,
 	}, nil
 }
 
@@ -141,7 +131,7 @@ func (s *Service) Convert(request ConvertRequest) (ConvertResult, error) {
 		return ConvertResult{}, err
 	}
 
-	sourceImage, err := s.decodeJPEG(normalizedInputPath)
+	sourceImage, err := decodeNormalizedJPEG(normalizedInputPath)
 	if err != nil {
 		return ConvertResult{}, err
 	}
@@ -219,7 +209,7 @@ func (s *Service) ConvertBatch(request BatchConvertRequest) (BatchConvertResult,
 			continue
 		}
 
-		sourceImage, decodeErr := s.decodeJPEG(inputPath)
+		sourceImage, decodeErr := decodeNormalizedJPEG(inputPath)
 		if decodeErr != nil {
 			itemResult.Status = BatchItemStatusFailed
 			itemResult.Error = decodeErr
@@ -261,22 +251,6 @@ func (s *Service) ConvertBatch(request BatchConvertRequest) (BatchConvertResult,
 
 	return result, nil
 }
-
-func (s *Service) decodeJPEG(inputPath string) (image.Image, error) {
-	inputFile, err := os.Open(inputPath)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReadFailed, err)
-	}
-	defer inputFile.Close()
-
-	sourceImage, err := jpeg.Decode(inputFile)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
-	}
-
-	return sourceImage, nil
-}
-
 func (s *Service) writeWebPOutput(inputPath string, sourceImage image.Image, outputPath string, quality int, overwrite bool) (ConvertResult, error) {
 	if err := validateQuality(quality); err != nil {
 		return ConvertResult{}, err

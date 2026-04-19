@@ -306,6 +306,24 @@ func TestGetImageInfoPersistsOnlySuccessfulInspections(t *testing.T) {
 	}
 }
 
+func TestGetImageInfoReturnsNormalizedExifDimensions(t *testing.T) {
+	inputPath := copyConversionFixtureForAppTest(t, "orientation-6.jpg")
+	application := &App{
+		ctx:       context.Background(),
+		dialogs:   &stubDialogs{},
+		converter: conversion.NewService(stubEncoder{}),
+	}
+
+	info, err := application.GetImageInfo(inputPath)
+	if err != nil {
+		t.Fatalf("GetImageInfo() error = %v", err)
+	}
+
+	if info.Width != 3 || info.Height != 2 {
+		t.Fatalf("GetImageInfo() dimensions = %dx%d, want 3x2", info.Width, info.Height)
+	}
+}
+
 func TestPickInputFilesFallsBackToSinglePickerAndDedupes(t *testing.T) {
 	tempDir := t.TempDir()
 	firstInputPath := createJPEGFixture(t, tempDir, "photo.jpg")
@@ -398,6 +416,27 @@ func TestInspectBatchInputsRejectsUnsupportedSelections(t *testing.T) {
 	assertAppError(t, err, AppErrorCodeInvalidInput)
 }
 
+func TestInspectBatchInputsReturnsNormalizedDimensions(t *testing.T) {
+	inputPath := copyConversionFixtureForAppTest(t, "orientation-8.jpg")
+	application := &App{
+		ctx:       context.Background(),
+		dialogs:   &stubDialogs{},
+		converter: conversion.NewService(stubEncoder{}),
+	}
+
+	inspection, err := application.InspectBatchInputs([]string{inputPath})
+	if err != nil {
+		t.Fatalf("InspectBatchInputs() error = %v", err)
+	}
+
+	if len(inspection.Items) != 1 {
+		t.Fatalf("InspectBatchInputs() items = %d, want 1", len(inspection.Items))
+	}
+	if inspection.Items[0].Input.Width != 3 || inspection.Items[0].Input.Height != 2 {
+		t.Fatalf("InspectBatchInputs() dimensions = %dx%d, want 3x2", inspection.Items[0].Input.Width, inspection.Items[0].Input.Height)
+	}
+}
+
 func TestPreflightBatchReturnsConflictPaths(t *testing.T) {
 	tempDir := t.TempDir()
 	inputPath := createJPEGFixture(t, tempDir, "photo.jpg")
@@ -456,4 +495,21 @@ func createJPEGFixture(t *testing.T, directory string, name string) string {
 	}
 
 	return path
+}
+
+func copyConversionFixtureForAppTest(t *testing.T, name string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join("..", "internal", "conversion", "testdata", name)
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", sourcePath, err)
+	}
+
+	destinationPath := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(destinationPath, payload, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", destinationPath, err)
+	}
+
+	return destinationPath
 }

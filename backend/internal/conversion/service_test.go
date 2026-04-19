@@ -17,12 +17,14 @@ type stubEncoder struct {
 	encodedBytes []byte
 	err          error
 	qualities    []float32
+	bounds       []image.Rectangle
 	errByQuality map[float32]error
 	errRemaining map[float32]int
 }
 
-func (s *stubEncoder) Encode(writer io.Writer, _ image.Image, options EncodeOptions) error {
+func (s *stubEncoder) Encode(writer io.Writer, source image.Image, options EncodeOptions) error {
 	s.qualities = append(s.qualities, options.Quality)
+	s.bounds = append(s.bounds, source.Bounds())
 	if s.errByQuality != nil {
 		if err, ok := s.errByQuality[options.Quality]; ok {
 			if s.errRemaining != nil {
@@ -48,6 +50,23 @@ fallback:
 
 	_, err := writer.Write(payload)
 	return err
+}
+
+func TestServiceInspectJPEGNormalizesExifDimensions(t *testing.T) {
+	service := NewService(&stubEncoder{})
+	inputPath := copyConversionFixture(t, "orientation-6.jpg")
+
+	info, err := service.InspectJPEG(inputPath)
+	if err != nil {
+		t.Fatalf("InspectJPEG() error = %v", err)
+	}
+
+	if info.Width != 3 || info.Height != 2 {
+		t.Fatalf("InspectJPEG() dimensions = %dx%d, want 3x2", info.Width, info.Height)
+	}
+	if info.FileName != filepath.Base(inputPath) {
+		t.Fatalf("InspectJPEG() file name = %q, want %q", info.FileName, filepath.Base(inputPath))
+	}
 }
 
 func TestServiceConvertRejectsInvalidQuality(t *testing.T) {
@@ -102,6 +121,9 @@ func TestServiceConvertWritesWebPOutput(t *testing.T) {
 	if len(encoder.qualities) != 1 || encoder.qualities[0] != 85 {
 		t.Fatalf("encoder qualities = %v, want [85]", encoder.qualities)
 	}
+	if len(encoder.bounds) != 1 || encoder.bounds[0].Dx() != 2 || encoder.bounds[0].Dy() != 2 {
+		t.Fatalf("encoder bounds = %v, want [2x2]", encoder.bounds)
+	}
 
 	outputData, err := os.ReadFile(outputPath)
 	if err != nil {
@@ -109,6 +131,24 @@ func TestServiceConvertWritesWebPOutput(t *testing.T) {
 	}
 	if string(outputData) != "converted-webp" {
 		t.Fatalf("output contents = %q, want %q", outputData, "converted-webp")
+	}
+}
+
+func TestServiceConvertNormalizesExifBeforeEncoding(t *testing.T) {
+	inputPath := copyConversionFixture(t, "orientation-6.jpg")
+	outputPath := filepath.Join(t.TempDir(), "fixture.webp")
+	encoder := &stubEncoder{encodedBytes: []byte("converted-webp")}
+	service := NewService(encoder)
+
+	if _, err := service.Convert(ConvertRequest{InputPath: inputPath, OutputPath: outputPath, Quality: 80}); err != nil {
+		t.Fatalf("Convert() error = %v", err)
+	}
+
+	if len(encoder.bounds) != 1 {
+		t.Fatalf("encoder bounds count = %d, want 1", len(encoder.bounds))
+	}
+	if encoder.bounds[0].Dx() != 3 || encoder.bounds[0].Dy() != 2 {
+		t.Fatalf("encoder bounds = %v, want 3x2", encoder.bounds[0])
 	}
 }
 
@@ -166,7 +206,7 @@ func TestServiceConvertRequiresOverwriteConfirmation(t *testing.T) {
 
 func TestServiceInspectBatchReturnsPlannedOutputs(t *testing.T) {
 	tempDir := t.TempDir()
-	inputPath := createTestJPEG(t, tempDir, "fixture.jpg")
+	inputPath := copyFixtureToDirectory(t, tempDir, "orientation-6.jpg")
 	service := NewService(&stubEncoder{})
 
 	items, err := service.InspectBatch([]string{inputPath})
@@ -182,21 +222,55 @@ func TestServiceInspectBatchReturnsPlannedOutputs(t *testing.T) {
 	if len(items[0].Outputs) != 3 {
 		t.Fatalf("InspectBatch() outputs = %d, want 3", len(items[0].Outputs))
 	}
+	if items[0].Image.Width != 3 || items[0].Image.Height != 2 {
+		t.Fatalf("InspectBatch() image dimensions = %dx%d, want 3x2", items[0].Image.Width, items[0].Image.Height)
+	}
 	if items[0].Outputs[0].Quality != 100 || items[0].Outputs[1].Quality != 50 || items[0].Outputs[2].Quality != 25 {
 		t.Fatalf("InspectBatch() output qualities = %#v, want [100 50 25]", items[0].Outputs)
 	}
 }
 
+func TestServiceConvertUsesRawOrientationWhenExifIsMissingOrMalformed(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+	}{
+		{name: "missing exif", fixture: "no-exif.jpg"},
+		{name: "malformed exif", fixture: "malformed-exif.jpg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputPath := copyConversionFixture(t, tt.fixture)
+			outputPath := filepath.Join(t.TempDir(), "fixture.webp")
+			encoder := &stubEncoder{encodedBytes: []byte("converted-webp")}
+			service := NewService(encoder)
+
+			if _, err := service.Convert(ConvertRequest{InputPath: inputPath, OutputPath: outputPath, Quality: 75}); err != nil {
+				t.Fatalf("Convert() error = %v", err)
+			}
+
+			if len(encoder.bounds) != 1 {
+				t.Fatalf("encoder bounds count = %d, want 1", len(encoder.bounds))
+			}
+			if encoder.bounds[0].Dx() != 2 || encoder.bounds[0].Dy() != 3 {
+				t.Fatalf("encoder bounds = %v, want 2x3", encoder.bounds[0])
+			}
+		})
+	}
+}
+
 func TestServiceConvertBatchContinuesAfterPerFileFailure(t *testing.T) {
 	tempDir := t.TempDir()
-	firstInputPath := createTestJPEG(t, tempDir, "first.jpg")
+	firstInputPath := copyFixtureToDirectory(t, tempDir, "orientation-6.jpg")
 	brokenInputPath := filepath.Join(tempDir, "broken.jpg")
 	if err := os.WriteFile(brokenInputPath, []byte("not a jpeg"), 0o644); err != nil {
 		t.Fatalf("write broken jpeg: %v", err)
 	}
-	thirdInputPath := createTestJPEG(t, tempDir, "third.jpeg")
+	thirdInputPath := copyFixtureToDirectory(t, tempDir, "orientation-8.jpg")
 
-	service := NewService(&stubEncoder{encodedBytes: []byte("batch-webp")})
+	encoder := &stubEncoder{encodedBytes: []byte("batch-webp")}
+	service := NewService(encoder)
 
 	result, err := service.ConvertBatch(BatchConvertRequest{Inputs: []string{firstInputPath, brokenInputPath, thirdInputPath}})
 	if err != nil {
@@ -217,13 +291,18 @@ func TestServiceConvertBatchContinuesAfterPerFileFailure(t *testing.T) {
 	if result.Summary.TotalInputs != 3 || result.Summary.CompletedInputs != 3 || result.Summary.FailedInputs != 1 || result.Summary.TotalOutputs != 9 || result.Summary.WrittenOutputs != 6 {
 		t.Fatalf("ConvertBatch() summary = %#v", result.Summary)
 	}
+	for _, bounds := range encoder.bounds {
+		if bounds.Dx() != 3 || bounds.Dy() != 2 {
+			t.Fatalf("batch encoder bounds = %v, want all 3x2", encoder.bounds)
+		}
+	}
 	for _, outputPath := range []string{
-		filepath.Join(tempDir, "first_high.webp"),
-		filepath.Join(tempDir, "first_medium.webp"),
-		filepath.Join(tempDir, "first_low.webp"),
-		filepath.Join(tempDir, "third_high.webp"),
-		filepath.Join(tempDir, "third_medium.webp"),
-		filepath.Join(tempDir, "third_low.webp"),
+		filepath.Join(tempDir, "orientation-6_high.webp"),
+		filepath.Join(tempDir, "orientation-6_medium.webp"),
+		filepath.Join(tempDir, "orientation-6_low.webp"),
+		filepath.Join(tempDir, "orientation-8_high.webp"),
+		filepath.Join(tempDir, "orientation-8_medium.webp"),
+		filepath.Join(tempDir, "orientation-8_low.webp"),
 	} {
 		if _, statErr := os.Stat(outputPath); statErr != nil {
 			t.Fatalf("Stat(%q) error = %v", outputPath, statErr)
@@ -289,4 +368,26 @@ func createTestJPEG(t *testing.T, directory string, name string) string {
 	}
 
 	return path
+}
+
+func copyConversionFixture(t *testing.T, name string) string {
+	t.Helper()
+	return copyFixtureToDirectory(t, t.TempDir(), name)
+}
+
+func copyFixtureToDirectory(t *testing.T, directory string, name string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join("testdata", name)
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", sourcePath, err)
+	}
+
+	destinationPath := filepath.Join(directory, name)
+	if err := os.WriteFile(destinationPath, payload, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", destinationPath, err)
+	}
+
+	return destinationPath
 }

@@ -4,6 +4,7 @@ go 1.22.2
 
 require (
 	github.com/chai2010/webp v1.4.0
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	github.com/wailsapp/wails/v2 v2.12.0
 )
 
