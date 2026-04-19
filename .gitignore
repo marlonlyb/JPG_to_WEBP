@@ -1,0 +1,10 @@
+frontend/node_modules/
+frontend/dist/
+build/bin/
+
+# Wails/Vite generated metadata
+frontend/package.json.md5
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "jpg-to-webp",
+  "version": "2",
+  "outputfilename": "jpg-to-webp",
+  "frontend:dir": "frontend",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "frontend/src/lib/wails/generated",
+  "debounceMS": 100,
+  "bindings": {
+    "ts_generation": {
+      "outputType": "interfaces"
+    }
+  },
+  "info": {
+    "productName": "JPG to WEBP",
+    "productVersion": "0.1.0",
+    "comments": "Offline desktop JPEG to WebP converter built with Wails, Go, and React."
+  }
+}
