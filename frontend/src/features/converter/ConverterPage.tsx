@@ -29,6 +29,14 @@ export function ConverterPage() {
 
   const isBusy = status === BATCH_SCREEN_STATUS.CONVERTING;
   const canConvert = inspection !== null && !isBusy;
+  const canReset = !isBusy && hasActiveBatchState({
+    error,
+    inspection,
+    preflight,
+    result,
+    status,
+    statusMessage,
+  });
 
   async function handleBrowse() {
     if (isBusy) {
@@ -94,6 +102,16 @@ export function ConverterPage() {
     setStatusMessage("Overwrite canceled.");
   }
 
+  function handleReset() {
+    if (!canReset) {
+      return;
+    }
+
+    setInspection(null);
+    setStatus(BATCH_SCREEN_STATUS.IDLE);
+    resetFeedback();
+  }
+
   function resetFeedback() {
     setError(null);
     setPreflight(null);
@@ -121,6 +139,9 @@ export function ConverterPage() {
     <section className="panel converter-panel">
       <header className="panel-header">
         <h1>JPG to WEBP</h1>
+        <button className="secondary-button panel-header-action" disabled={!canReset} type="button" onClick={handleReset}>
+          Clear
+        </button>
       </header>
 
       <div className="converter-layout">
@@ -148,6 +169,33 @@ export function ConverterPage() {
         onConfirmOverwrite={handleConfirmOverwrite}
       />
     </section>
+  );
+}
+
+interface ActiveBatchState {
+  error: AppErrorDTO | null;
+  inspection: BatchInspectionDTO | null;
+  preflight: BatchPreflightDTO | null;
+  result: BatchConvertResultDTO | null;
+  status: BatchScreenStatus;
+  statusMessage: string | null;
+}
+
+function hasActiveBatchState({
+  error,
+  inspection,
+  preflight,
+  result,
+  status,
+  statusMessage,
+}: ActiveBatchState): boolean {
+  return (
+    inspection !== null ||
+    preflight !== null ||
+    result !== null ||
+    error !== null ||
+    statusMessage !== null ||
+    status !== BATCH_SCREEN_STATUS.IDLE
   );
 }
 

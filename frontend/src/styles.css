@@ -45,8 +45,14 @@ body {
 }
 
 .panel-header {
-  display: grid;
-  gap: 0.25rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.panel-header-action {
+  flex-shrink: 0;
 }
 
 .panel h1 {
@@ -237,6 +243,10 @@ button:disabled {
 
   .section-header {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .panel-header {
     flex-direction: column;
   }
 }

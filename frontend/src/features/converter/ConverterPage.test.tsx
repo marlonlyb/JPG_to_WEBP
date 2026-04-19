@@ -72,6 +72,7 @@ describe("ConverterPage", () => {
 
     expect(screen.getByText("Choose 1 to 10 local JPEG files. Outputs stay beside each source.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Convert batch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
   });
 
   it("loads a valid batch review and shows planned outputs", async () => {
@@ -246,6 +247,35 @@ describe("ConverterPage", () => {
     expect(await screen.findByText("Error")).toBeInTheDocument();
     expect(screen.getByText("The batch could not be read or decoded.")).toBeInTheDocument();
     expect(screen.getByText("decode failed")).toBeInTheDocument();
+  });
+
+  it("clears the completed batch back to the initial state", async () => {
+    mockSelectedBatch();
+    vi.mocked(preflightBatch).mockResolvedValue({
+      conflicts: [],
+      totalConflicts: 0,
+      needsOverwrite: false,
+    });
+    vi.mocked(convertBatch).mockResolvedValue(createBatchResult());
+
+    render(<ConverterPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose JPEGs" }));
+    await screen.findByText("photo.jpg");
+
+    fireEvent.click(screen.getByRole("button", { name: "Convert batch" }));
+
+    expect(await screen.findByText("Batch completed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Choose 1 to 10 local JPEG files. Outputs stay beside each source.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Batch completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("photo.jpg")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Convert batch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
   });
 });
 
